@@ -56,12 +56,30 @@ st.sidebar.title("Student Portal")
 if roster is not None and not roster.empty:
     
     # Identify the column used for Student IDs
-    student_id_column = 'student_id' 
+    # student_id_column = 'student_id' 
     
-    if student_id_column in roster.columns:
-        # Create a dropdown in the sidebar
-        student_ids = roster[student_id_column].astype(str).unique().tolist()
-        selected_id = st.sidebar.selectbox("Select your Student ID to log in:", student_ids)
+    # if student_id_column in roster.columns:
+    #     # Create a dropdown in the sidebar
+    #     student_ids = roster[student_id_column].astype(str).unique().tolist()
+    #     selected_id = st.sidebar.selectbox("Select your Student ID to log in:", student_ids)
+
+    # Identify the columns used for Student IDs and Names
+    student_id_column = 'student_id'
+    name_column = 'name' 
+    
+    if student_id_column in roster.columns and name_column in roster.columns:
+        # Create a dictionary map linking each ID to its corresponding Name
+        id_to_name = dict(zip(roster[student_id_column].astype(str), roster[name_column].astype(str)))
+        
+        # Create the dropdown list of IDs
+        student_ids = list(id_to_name.keys())
+        
+        # Display the Name in the dropdown, but pass the ID to 'selected_id'
+        selected_id = st.sidebar.selectbox(
+            "Select a Student to log in:", 
+            options=student_ids,
+            format_func=lambda x: id_to_name.get(x, "Unknown Student")
+        )
 
         # Helper function to safely filter dataframes
         def get_student_records(df):
