@@ -1,6 +1,27 @@
 import pandas as pd
 import streamlit as st
 import json
+import numpy as np
+from datetime import datetime, date
+
+# class CustomJSONEncoder(json.JSONEncoder):
+#     """Custom encoder to handle pandas/numpy/datetime types automatically."""
+#     def default(self, obj):
+#         if isinstance(obj, (pd.Timestamp, datetime, date)):
+#             return obj.isoformat()
+#         if isinstance(obj, (np.integer, np.floating)):
+#             return float(obj)
+#         if isinstance(obj, np.ndarray):
+#             return obj.tolist()
+#         if pd.isna(obj):
+#             return None
+#         return str(obj) # Final safety fallback
+
+# def build_student_profile(selected_id, roster, scores, attendance, schedule, signals):
+#     # ... (all your existing logic to build 'student_data' dictionary) ...
+    
+#     # Use the cls parameter to force the use of our custom encoder
+#     return json.dumps(student_data, indent=2, cls=CustomJSONEncoder)
 
 # Add this helper function at the top of your data_handler.py
 def json_serial(obj):
@@ -11,12 +32,26 @@ def json_serial(obj):
         return obj.isoformat()
     raise TypeError(f"Type {type(obj)} not serializable")
 
-def build_student_profile(selected_id, roster, scores, attendance, schedule, signals):
-    # ... (your existing logic to build the student_data dictionary) ...
-    # Make sure 'student_data' is defined before this point
+# def build_student_profile(selected_id, roster, scores, attendance, schedule, signals):
+#     # ... your existing logic to build the student_data dictionary ...
     
-    # FIXED: Use the 'default' parameter to handle the date serialization
-    return json.dumps(student_data, indent=2, default=json_serial)
+#     # Define a 'universal' serializer that forces EVERYTHING to string if it fails
+#     def default_converter(o):
+#         if isinstance(o, (pd.Timestamp, pd.DatetimeIndex, pd.Period)):
+#             return o.strftime('%Y-%m-%d %H:%M:%S')
+#         if isinstance(o, (np.integer, np.floating)):
+#             return float(o)
+#         if isinstance(o, np.ndarray):
+#             return o.tolist()
+#         # The ultimate fallback: turn any unknown object into a string
+#         return str(o)
+
+#     # Use the 'default' parameter to run the converter on every object
+#     return json.dumps(
+#     student_data,
+#     indent=2,
+#     default=str
+# )
 
 @st.cache_data(ttl=600)
 def load_school_data(sheet_id):
@@ -53,4 +88,8 @@ def build_student_profile(selected_id, roster, scores, attendance, schedule, sig
         "upcoming_exams": schedule.to_dict('records') if not schedule.empty else []
     }
     
-    return json.dumps(student_data, indent=2)
+    return json.dumps(
+    student_data,
+    indent=2,
+    default=str
+)
