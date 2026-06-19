@@ -58,11 +58,10 @@ def retrieve_past_memories(student_id):
         client = get_mem0_client()
         
         # ==========================================
-        # BUG FIX: Bypass the get_all() API bug by using search()
+        # BUG FIX: The exact strict filter syntax Mem0's Cloud API requires
         # ==========================================
-        search_results = client.search(
-            query="student facts, personal details, goals, and session summaries", 
-            filters={"user_id": student_id}
+        search_results = client.get_all(
+            filters={"AND": [{"user_id": student_id}]}
         )
         
         facts = []
@@ -99,5 +98,4 @@ def retrieve_past_memories(student_id):
         
     except Exception as e:
         print(f"Memory retrieval error: {e}")
-        # MUST RETURN EXACTLY TWO STRINGS to prevent the unpack error!
         return "No specific facts recorded yet.", "No past sessions recorded."
