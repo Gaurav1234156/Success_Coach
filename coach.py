@@ -1,6 +1,7 @@
 import streamlit as st
 from data_handler import load_school_data, build_student_profile
 from ai_agent import get_openai_client, generate_system_prompt
+from knowledge_base import search_course_materials
 
 # 1. Page Configuration & Setup
 st.set_page_config(page_title="Success Coach", page_icon="🎓")
@@ -55,6 +56,25 @@ if roster is not None and not roster.empty:
                     st.markdown(message["content"])
 
         # Input Box
+        # if user_input := st.chat_input("Type your message here..."):
+        #     with st.chat_message("user"):
+        #         st.markdown(user_input)
+            
+        #     st.session_state.messages.append({"role": "user", "content": user_input})
+
+        #     with st.chat_message("assistant"):
+        #         try:
+        #             response = client.chat.completions.create(
+        #                 model="gpt-5.4-mini-2026-03-17",
+        #                 messages=st.session_state.messages
+        #             )
+        #             reply = response.choices[0].message.content
+        #             st.markdown(reply)
+        #             st.session_state.messages.append({"role": "assistant", "content": reply})
+        #         except Exception as e:
+        #             st.error(f"Error connecting to AI: {e}")
+
+        # Chat Input Box & Logic
         if user_input := st.chat_input("Type your message here..."):
             with st.chat_message("user"):
                 st.markdown(user_input)
@@ -63,13 +83,36 @@ if roster is not None and not roster.empty:
 
             with st.chat_message("assistant"):
                 try:
+                    # ==========================================
+                    # MILESTONE 3: CHROMADB SEARCH (RAG)
+                    # ==========================================
+                    with st.spinner("Checking course materials..."):
+                        retrieved_facts = search_course_materials(user_input, selected_id)
+                    
+                    # Copy the chat history for this specific API call
+                    messages_for_ai = st.session_state.messages.copy()
+                    
+                    # If ChromaDB found something, inject it into the prompt!
+                    if retrieved_facts and "No specific course materials found" not in retrieved_facts:
+                        st.toast("📚 Fact retrieved from ChromaDB!") 
+                        knowledge_prompt = f"""
+                        The student just asked a question. Here is accurate information retrieved from your course database:
+                        
+                        {retrieved_facts}
+                        
+                        CRITICAL INSTRUCTION: Use the information above to answer the student's question accurately. Do not contradict the database.
+                        """
+                        messages_for_ai.append({"role": "system", "content": knowledge_prompt})
+                    # ==========================================
+
                     response = client.chat.completions.create(
                         model="gpt-5.4-mini-2026-03-17",
-                        messages=st.session_state.messages
+                        messages=messages_for_ai
                     )
                     reply = response.choices[0].message.content
                     st.markdown(reply)
                     st.session_state.messages.append({"role": "assistant", "content": reply})
+                    
                 except Exception as e:
                     st.error(f"Error connecting to AI: {e}")
                     
