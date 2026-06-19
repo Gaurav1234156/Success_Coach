@@ -20,8 +20,11 @@ def store_session_data(chat_messages, student_id):
     conversation_only = [msg for msg in chat_messages if msg["role"] != "system"]
     
     if len(conversation_only) > 1:
-        # 1. NATIVE MEM0: Extract raw factual memory (traits, triggers)
-        client.add(messages=conversation_only, user_id=student_id)
+        # 1. NATIVE MEM0: Extract raw factual memory
+        try:
+            client.add(messages=conversation_only, user_id=student_id)
+        except Exception as e:
+            print(f"Fact save error: {e}")
         
         # 2. OPENAI: Generate a Session Summary
         summary_instructions = """You are a meticulous note-taking assistant. Summarize the following coaching conversation. 
@@ -31,11 +34,12 @@ def store_session_data(chat_messages, student_id):
         3) Academic Context: What subjects or goals were discussed.
         4) Action Items: Any decisions made.
         Do not leave out personal facts, no matter how small."""
+        
         summary_messages = [{"role": "system", "content": summary_instructions}] + conversation_only
         
         try:
             response = openai_client.chat.completions.create(
-                model="gpt-5.4-mini-2026-03-17", # Fast model for backend summarization
+                model="gpt-5.4-mini-2026-03-17", 
                 messages=summary_messages
             )
             session_summary = response.choices[0].message.content
@@ -52,30 +56,42 @@ def retrieve_past_memories(student_id):
     """Fetches and separates factual traits from chronological session summaries."""
     try:
         client = get_mem0_client()
-        memories = client.get_all(filters={"user_id": student_id})
+        
+        # ==========================================
+        # BUG FIX: Bypass the get_all() API bug by using search()
+        # ==========================================
+        search_results = client.search(
+            query="student facts, personal details, goals, and session summaries", 
+            filters={"user_id": student_id}
+        )
         
         facts = []
         summaries = []
         
-        # Handle different Mem0 response formats securely
-        if memories and isinstance(memories, list):
-            iterable = memories
-        elif memories and "results" in memories:
-             iterable = memories["results"]
+        # Extract the results safely handling Mem0's various dictionary structures
+        if isinstance(search_results, dict) and "results" in search_results:
+            iterable = search_results["results"]
+        elif isinstance(search_results, list):
+            iterable = search_results
         else:
-             iterable = []
+            iterable = []
              
         for m in iterable:
-            memory_text = m.get("memory", str(m))
-            metadata = m.get("metadata", {})
-            
-            # Separate the data based on our custom tag
+            if isinstance(m, dict):
+                memory_text = m.get("memory", str(m))
+                metadata = m.get("metadata") or {}
+            elif hasattr(m, 'memory'):
+                memory_text = m.memory
+                metadata = getattr(m, 'metadata', {}) or {}
+            else:
+                memory_text = str(m)
+                metadata = {}
+                
             if metadata and metadata.get("type") == "session_summary":
                 summaries.append(memory_text)
             else:
                 facts.append(memory_text)
                 
-        # Format them beautifully for the AI's prompt
         formatted_facts = "\n".join([f"- {fact}" for fact in facts]) if facts else "No specific facts recorded yet."
         formatted_summaries = "\n\n".join(summaries) if summaries else "No past sessions recorded."
         
@@ -83,4 +99,5 @@ def retrieve_past_memories(student_id):
         
     except Exception as e:
         print(f"Memory retrieval error: {e}")
-        return "No past memories found.", "No past sessions found."
+        # MUST RETURN EXACTLY TWO STRINGS to prevent the unpack error!
+        return "No specific facts recorded yet.", "No past sessions recorded."
