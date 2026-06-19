@@ -23,6 +23,7 @@ jiter==0.15.0
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 MarkupSafe==3.0.3
+mem0ai
 narwhals==2.22.1
 numpy==2.4.6
 openai==2.43.0
