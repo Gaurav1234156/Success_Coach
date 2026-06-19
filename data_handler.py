@@ -2,6 +2,22 @@ import pandas as pd
 import streamlit as st
 import json
 
+# Add this helper function at the top of your data_handler.py
+def json_serial(obj):
+    """JSON serializer for objects not serializable by default json code"""
+    if isinstance(obj, (pd.Timestamp, pd.DatetimeIndex)):
+        return obj.strftime('%Y-%m-%d %H:%M:%S')
+    if hasattr(obj, 'isoformat'): # Handles datetime.date and datetime.datetime
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
+
+def build_student_profile(selected_id, roster, scores, attendance, schedule, signals):
+    # ... (your existing logic to build the student_data dictionary) ...
+    # Make sure 'student_data' is defined before this point
+    
+    # FIXED: Use the 'default' parameter to handle the date serialization
+    return json.dumps(student_data, indent=2, default=json_serial)
+
 @st.cache_data(ttl=600)
 def load_school_data(sheet_id):
     """Fetches data directly from the public Google Sheet using the ID."""
