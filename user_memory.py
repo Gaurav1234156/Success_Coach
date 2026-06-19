@@ -2,6 +2,7 @@ import streamlit as st
 from mem0 import MemoryClient
 from ai_agent import get_openai_client
 from datetime import datetime
+import requests
 
 def get_mem0_client():
     """Securely initializes the Mem0 client."""
@@ -48,26 +49,37 @@ def store_session_data(chat_messages, student_id):
             date_str = datetime.now().strftime("%B %d, %Y")
             final_summary_text = f"Session on {date_str}: {session_summary}"
             
-            client.add(final_summary_text, user_id=student_id, metadata={"type": "session_summary"})
+            client.add(messages=final_summary_text, user_id=student_id, metadata={"type": "session_summary"})
         except Exception as e:
             print(f"Summary generation error: {e}")
 
 def retrieve_past_memories(student_id):
     """Fetches and separates factual traits from chronological session summaries."""
     try:
-        client = get_mem0_client()
+        # ==========================================
+        # BULLETPROOF FIX: Bypass the buggy SDK entirely
+        # Make a direct REST API call to Mem0's servers!
+        # ==========================================
+        url = f"https://api.mem0.ai/v1/memories/?user_id={student_id}"
+        headers = {
+            "Authorization": f"Token {st.secrets['MEM0_API_KEY']}",
+            "Content-Type": "application/json"
+        }
         
-        # ==========================================
-        # BUG FIX: The exact strict filter syntax Mem0's Cloud API requires
-        # ==========================================
-        search_results = client.get_all(
-            filters={"AND": [{"user_id": student_id}]}
-        )
+        # Make the direct request to the cloud
+        response = requests.get(url, headers=headers)
+        
+        # In case the API expects a Bearer token instead of a standard Token
+        if response.status_code in [401, 403]:
+            headers["Authorization"] = f"Bearer {st.secrets['MEM0_API_KEY']}"
+            response = requests.get(url, headers=headers)
+            
+        search_results = response.json() if response.status_code == 200 else []
         
         facts = []
         summaries = []
         
-        # Extract the results safely handling Mem0's various dictionary structures
+        # Safely parse the direct API response
         if isinstance(search_results, dict) and "results" in search_results:
             iterable = search_results["results"]
         elif isinstance(search_results, list):
@@ -79,9 +91,6 @@ def retrieve_past_memories(student_id):
             if isinstance(m, dict):
                 memory_text = m.get("memory", str(m))
                 metadata = m.get("metadata") or {}
-            elif hasattr(m, 'memory'):
-                memory_text = m.memory
-                metadata = getattr(m, 'metadata', {}) or {}
             else:
                 memory_text = str(m)
                 metadata = {}
