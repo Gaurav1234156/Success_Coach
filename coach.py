@@ -54,14 +54,6 @@ st.sidebar.title("Student Portal")
 
 # Check if data loaded and roster tab was found
 if roster is not None and not roster.empty:
-    
-    # Identify the column used for Student IDs
-    # student_id_column = 'student_id' 
-    
-    # if student_id_column in roster.columns:
-    #     # Create a dropdown in the sidebar
-    #     student_ids = roster[student_id_column].astype(str).unique().tolist()
-    #     selected_id = st.sidebar.selectbox("Select your Student ID to log in:", student_ids)
 
     # Identify the columns used for Student IDs and Names
     student_id_column = 'student_id'
