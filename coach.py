@@ -67,16 +67,40 @@ if roster is not None and not roster.empty:
         # Reset chat if a new student is selected or chat is empty
         if "messages" not in st.session_state or st.session_state.get("current_student") != selected_id or not st.session_state.messages:
             
-            # Fetch past memories from Mem0
-            with st.spinner("Recalling past sessions..."):
-                past_memories = retrieve_past_memories(selected_id)
+            # Fetch BOTH types of memory
+            with st.spinner("Recalling past sessions and student facts..."):
+                student_facts, session_summaries = retrieve_past_memories(selected_id)
+                
+                # Save them to session state so we can display them in the sidebar
+                st.session_state.student_facts = student_facts
+                st.session_state.session_summaries = session_summaries
             
-            # Inject memories into the AI's instructions
-            memory_injection = f"\n\nPAST MEMORIES ABOUT THIS STUDENT:\n{past_memories}"
+            # Inject deep context into the AI
+            memory_injection = f"""
+            
+            === FACTUAL MEMORY ===
+            (Student traits, stressors, and recurring patterns):
+            {student_facts}
+            
+            === CHRONOLOGICAL SESSION SUMMARIES ===
+            (What was discussed and decided in past meetings):
+            {session_summaries}
+            
+            CRITICAL INSTRUCTION: You are a long-term mentor. Use the chronological session summaries above to understand the student's journey. If they have had multiple sessions, acknowledge their ongoing progress and reference past decisions naturally.
+            """
             final_system_prompt = system_prompt + memory_injection
             
             st.session_state.messages = [{"role": "system", "content": final_system_prompt}]
             st.session_state.current_student = selected_id
+
+        # ==========================================
+        # MILESTONE 5: THE COACH'S BRIEFING SIDEBAR
+        # ==========================================
+        with st.sidebar.expander("📋 Request Coach's Briefing"):
+            st.markdown("**🧠 Factual Traits & Triggers:**")
+            st.info(st.session_state.get('student_facts', 'No facts yet.'))
+            st.markdown("**📅 Past Session Summaries:**")
+            st.success(st.session_state.get('session_summaries', 'No sessions yet.'))
 
         # Display history
         for message in st.session_state.messages:
@@ -84,7 +108,75 @@ if roster is not None and not roster.empty:
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
 
-        # Chat Input Box & Logic
+#         # Chat Input Box & Logic
+#         if user_input := st.chat_input("Type your message here..."):
+#             with st.chat_message("user"):
+#                 st.markdown(user_input)
+            
+#             st.session_state.messages.append({"role": "user", "content": user_input})
+
+#             with st.chat_message("assistant"):
+#                 try:
+#                     # ==========================================
+#                     # MILESTONE 3: CHROMADB SEARCH (RAG)
+#                     # ==========================================
+#                     with st.spinner("Checking course materials..."):
+#                         retrieved_facts = search_knowledge_base(user_input, n_results=2)
+                    
+#                     # # Copy the chat history for this specific API call
+#                     # messages_for_ai = st.session_state.messages.copy()
+
+#                     # Copy the chat history for this specific API call
+#                     messages_for_ai = st.session_state.messages.copy()
+                    
+#                     # ==========================================
+#                     # DYNAMIC MEMORY INJECTION
+#                     # Whisper the memory to the AI right before it responds!
+#                     # ==========================================
+#                     memory_reminder = f"""
+#                     INTERNAL COACHING REMINDER: 
+#                     Do not forget this student's past history when replying to their message:
+#                     - Facts & Traits: {st.session_state.get('student_facts', 'None')}
+#                     - Past Sessions & Goals: {st.session_state.get('session_summaries', 'None')}
+                    
+#                     CRITICAL INSTRUCTION: Explicitly tailor your advice to align with their past goals and history.
+#                     """
+#                     messages_for_ai.append({"role": "system", "content": memory_reminder})
+#                     # ==========================================
+                    
+#                     # If ChromaDB found something, inject it into the prompt!
+#                     if retrieved_facts and "No matching documentation found" not in retrieved_facts:
+                    
+#                     # If ChromaDB found something, inject it into the prompt!
+#                     if retrieved_facts and "No matching documentation found" not in retrieved_facts:
+#                         st.toast("📚 Fact retrieved from ChromaDB!") 
+#                         knowledge_prompt = f"""
+#                         The student just asked a question. Here is accurate information retrieved from your course database:
+                        
+#                         {retrieved_facts}
+                        
+#                         CRITICAL INSTRUCTION: Use the information above to answer the student's question accurately. Do not contradict the database.
+#                         """
+#                         messages_for_ai.append({"role": "system", "content": knowledge_prompt})
+#                     # ==========================================
+
+#                     response = client.chat.completions.create(
+#                         model="gpt-5.4-mini-2026-03-17",
+#                         messages=messages_for_ai
+#                     )
+#                     reply = response.choices[0].message.content
+#                     st.markdown(reply)
+#                     st.session_state.messages.append({"role": "assistant", "content": reply})
+                    
+#                 except Exception as e:
+#                     st.error(f"Error connecting to AI: {e}")
+                    
+#     else:
+#         st.error(f"Could not find columns named '{student_id_column}' or '{name_column}' in your roster tab.")
+        
+# elif roster is not None and roster.empty:
+#     st.warning("Connected to the Google Sheet, but the 'roster' tab is empty or couldn't be found.")
+# Chat Input Box & Logic
         if user_input := st.chat_input("Type your message here..."):
             with st.chat_message("user"):
                 st.markdown(user_input)
@@ -101,6 +193,21 @@ if roster is not None and not roster.empty:
                     
                     # Copy the chat history for this specific API call
                     messages_for_ai = st.session_state.messages.copy()
+                    
+                    # ==========================================
+                    # DYNAMIC MEMORY INJECTION
+                    # Whisper the memory to the AI right before it responds!
+                    # ==========================================
+                    memory_reminder = f"""
+                    INTERNAL COACHING REMINDER: 
+                    Do not forget this student's past history when replying to their message:
+                    - Facts & Traits: {st.session_state.get('student_facts', 'None')}
+                    - Past Sessions & Goals: {st.session_state.get('session_summaries', 'None')}
+                    
+                    CRITICAL INSTRUCTION: Explicitly tailor your advice to align with their past goals and history.
+                    """
+                    messages_for_ai.append({"role": "system", "content": memory_reminder})
+                    # ==========================================
                     
                     # If ChromaDB found something, inject it into the prompt!
                     if retrieved_facts and "No matching documentation found" not in retrieved_facts:
