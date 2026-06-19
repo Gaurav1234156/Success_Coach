@@ -6,6 +6,7 @@ blinker==1.9.0
 cachetools==7.1.4
 certifi==2026.6.17
 charset-normalizer==3.4.7
+chromadb
 click==8.4.1
 distro==1.9.0
 gitdb==4.0.12
