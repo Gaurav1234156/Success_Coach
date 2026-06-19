@@ -2,6 +2,7 @@ import streamlit as st
 from data_handler import load_school_data, build_student_profile
 from ai_agent import get_openai_client, generate_system_prompt
 from knowledge_base import search_knowledge_base
+from user_memory import store_session_data, retrieve_past_memories
 
 # 1. Page Configuration & Setup
 st.set_page_config(page_title="Success Coach", page_icon="🎓")
@@ -24,6 +25,7 @@ if roster is not None and not roster.empty:
     name_column = 'name' 
     
     if student_id_column in roster.columns and name_column in roster.columns:
+        
         # Build Sidebar Dropdown
         id_to_name = dict(zip(roster[student_id_column].astype(str), roster[name_column].astype(str)))
         student_ids = list(id_to_name.keys())
@@ -34,6 +36,24 @@ if roster is not None and not roster.empty:
             format_func=lambda x: id_to_name.get(x, "Unknown Student")
         )
 
+        # Add a Save & End Session Button to the sidebar
+        st.sidebar.divider()
+        if st.sidebar.button("💾 Save & End Session", use_container_width=True):
+            if "messages" in st.session_state and len(st.session_state.messages) > 1:
+                with st.spinner("Extracting and saving session memories..."):
+                    store_session_data(st.session_state.messages, selected_id)
+                st.toast("✅ Session saved to memory!")
+                # Clear the chat history to start fresh next time
+                st.session_state.messages = []
+                st.rerun()
+            else:
+                st.sidebar.warning("No conversation to save yet.")
+                
+        # Optional: Button to clear chat without saving to Mem0
+        if st.sidebar.button("🗑️ Start New Chat (Don't Save)", use_container_width=True):
+            st.session_state.messages = []
+            st.rerun()
+
         # Process the student's data using our imported function
         student_context = build_student_profile(selected_id, roster, scores, attendance, schedule, signals)
 
@@ -41,38 +61,28 @@ if roster is not None and not roster.empty:
         st.title(f"🎓 Coach for: {id_to_name.get(selected_id)}")
         st.write("Ask me how you're doing in class or for help planning your week!")
 
-        # 4. Chat Management
+        # 4. Chat Management & Initialization
         system_prompt = generate_system_prompt(student_context)
 
-        # Reset chat if a new student is selected
-        if "messages" not in st.session_state or st.session_state.get("current_student") != selected_id:
-            st.session_state.messages = [{"role": "system", "content": system_prompt}]
-            st.session_state.current_student = selected_id 
+        # Reset chat if a new student is selected or chat is empty
+        if "messages" not in st.session_state or st.session_state.get("current_student") != selected_id or not st.session_state.messages:
+            
+            # Fetch past memories from Mem0
+            with st.spinner("Recalling past sessions..."):
+                past_memories = retrieve_past_memories(selected_id)
+            
+            # Inject memories into the AI's instructions
+            memory_injection = f"\n\nPAST MEMORIES ABOUT THIS STUDENT:\n{past_memories}"
+            final_system_prompt = system_prompt + memory_injection
+            
+            st.session_state.messages = [{"role": "system", "content": final_system_prompt}]
+            st.session_state.current_student = selected_id
 
         # Display history
         for message in st.session_state.messages:
             if message["role"] != "system":
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
-
-        # Input Box
-        # if user_input := st.chat_input("Type your message here..."):
-        #     with st.chat_message("user"):
-        #         st.markdown(user_input)
-            
-        #     st.session_state.messages.append({"role": "user", "content": user_input})
-
-        #     with st.chat_message("assistant"):
-        #         try:
-        #             response = client.chat.completions.create(
-        #                 model="gpt-5.4-mini-2026-03-17",
-        #                 messages=st.session_state.messages
-        #             )
-        #             reply = response.choices[0].message.content
-        #             st.markdown(reply)
-        #             st.session_state.messages.append({"role": "assistant", "content": reply})
-        #         except Exception as e:
-        #             st.error(f"Error connecting to AI: {e}")
 
         # Chat Input Box & Logic
         if user_input := st.chat_input("Type your message here..."):
@@ -93,7 +103,7 @@ if roster is not None and not roster.empty:
                     messages_for_ai = st.session_state.messages.copy()
                     
                     # If ChromaDB found something, inject it into the prompt!
-                    if retrieved_facts and "No specific course materials found" not in retrieved_facts:
+                    if retrieved_facts and "No matching documentation found" not in retrieved_facts:
                         st.toast("📚 Fact retrieved from ChromaDB!") 
                         knowledge_prompt = f"""
                         The student just asked a question. Here is accurate information retrieved from your course database:
