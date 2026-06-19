@@ -1,7 +1,7 @@
 import streamlit as st
 from data_handler import load_school_data, build_student_profile
 from ai_agent import get_openai_client, generate_system_prompt
-from knowledge_base import search_course_materials
+from knowledge_base import search_knowledge_base
 
 # 1. Page Configuration & Setup
 st.set_page_config(page_title="Success Coach", page_icon="🎓")
@@ -87,7 +87,7 @@ if roster is not None and not roster.empty:
                     # MILESTONE 3: CHROMADB SEARCH (RAG)
                     # ==========================================
                     with st.spinner("Checking course materials..."):
-                        retrieved_facts = search_course_materials(user_input, selected_id)
+                        retrieved_facts = search_knowledge_base(user_input, n_results=2)
                     
                     # Copy the chat history for this specific API call
                     messages_for_ai = st.session_state.messages.copy()
