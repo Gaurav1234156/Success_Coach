@@ -25,8 +25,9 @@ Jinja2==3.1.6
 jiter==0.15.0
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
+langchain-openai>=0.1.0
+langgraph>=0.0.10
 langchain
-langchain-openai
 langchain-community
 MarkupSafe==3.0.3
 mem0ai
