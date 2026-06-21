@@ -6,7 +6,13 @@ from user_memory import store_session_data, retrieve_past_memories
 from auth import show_login_page
 from signal_processor import detect_and_save_signal
 from coach_agent import get_coach_agent
-from briefing_generator import generate_pre_meeting_brief # <--- NEW IMPORT
+from briefing_generator import generate_pre_meeting_brief
+from plan_manager import evaluate_and_update_plan, execute_manual_resolution # <--- NEW IMPORT
+
+# --- ADD THIS INITIALIZATION BLOCK ---
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+# --------------------------------------
 
 # ==========================================
 # 1. PAGE CONFIGURATION & SETUP
@@ -64,20 +70,56 @@ if roster is not None and not roster.empty:
             # Autonomous Planning Block (LangChain Agent)
             st.sidebar.divider()
             st.sidebar.subheader("Autonomous Planning")
+            # if st.sidebar.button("📅 Generate Today's Plan"):
+            #     with st.spinner("Agent is reasoning through signals..."):
+            #         try:
+            #             agent = get_coach_agent()
+            #             input_msg = """
+            #             1. Use the get_pending_signals tool to fetch the un-actioned signals.
+            #             2. Prioritize the students based on severity/urgency.
+            #             3. Use the create_calendar_event tool to schedule them for today. 
+            #                IMPORTANT: Ensure the start_time is strictly in ISO format with the IST timezone offset (e.g., 'YYYY-MM-DDT10:00:00+05:30').
+            #             4. Use the update_sheet_actioned tool to mark them as done.
+            #             Give me a final report of what you did.
+            #             """
+            #             response = agent.invoke({"messages": [("user", input_msg)]})
+            #             plan = response["messages"][-1].content
+            #             st.sidebar.success("Plan generated!")
+            #             st.write("### Agent's Planning Report:")
+            #             st.markdown(plan)
+            #         except Exception as e:
+            #             st.error(f"Agent failed: {e}")
+
             if st.sidebar.button("📅 Generate Today's Plan"):
                 with st.spinner("Agent is reasoning through signals..."):
                     try:
+                        import datetime
+                        today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+                        
                         agent = get_coach_agent()
-                        input_msg = """
-                        1. Use the get_pending_signals tool to fetch the un-actioned signals.
-                        2. Prioritize the students based on severity/urgency.
-                        3. Use the create_calendar_event tool to schedule them for today. 
-                           IMPORTANT: Ensure the start_time is strictly in ISO format with the IST timezone offset (e.g., 'YYYY-MM-DDT10:00:00+05:30').
-                        4. Use the update_sheet_actioned tool to mark them as done.
-                        Give me a final report of what you did.
+                        
+                        # UPDATED PROMPT: Strict scheduling and capacity limits
+                        input_msg = f"""
+                        Today's date is {today_str}.
+                        
+                        1. Use the get_pending_signals tool to fetch ALL un-actioned signals.
+                        2. Prioritize them based on severity and urgency.
+                        3. CAPACITY LIMIT: You only have time for a MAXIMUM of 4 students today. Select only the top 4 most urgent cases. Ignore the rest for now.
+                        4. Use the create_calendar_event tool to schedule the selected students. 
+                           - STRICT TIME RULE: You MUST stagger the sessions. Start at 09:00 AM IST and use 30-minute intervals.
+                           - Use exactly these start times for your up to 4 slots: 
+                             Slot 1: '{today_str}T09:00:00+05:30'
+                             Slot 2: '{today_str}T09:30:00+05:30'
+                             Slot 3: '{today_str}T10:00:00+05:30'
+                             Slot 4: '{today_str}T10:30:00+05:30'
+                           - NEVER schedule two students at the same time.
+                        5. Use the update_sheet_actioned tool to mark ONLY the scheduled students as done.
+                        
+                        Give me a final report of who you scheduled, their times, and who was left un-actioned.
                         """
                         response = agent.invoke({"messages": [("user", input_msg)]})
                         plan = response["messages"][-1].content
+                        
                         st.sidebar.success("Plan generated!")
                         st.write("### Agent's Planning Report:")
                         st.markdown(plan)
@@ -120,39 +162,48 @@ if roster is not None and not roster.empty:
         student_context = build_student_profile(selected_id, roster, scores, attendance, schedule, signals)
 
         # ==========================================
-        # 4. CHAT MANAGEMENT & INITIALIZATION
+        # 4. REAL-TIME DISRUPTION ENGINE (MILESTONE 9)
         # ==========================================
-        system_prompt = generate_system_prompt(student_context)
+        if st.session_state.role == "coach":
+            # Run background plan health validation instantly on dashboard focus
+            plan_status = evaluate_and_update_plan(SPREADSHEET_ID)
+            
+            if plan_status["status"] in ["auto_inserted", "auto_bumped"]:
+                st.info(f"🔄 **Notification Area: System Plan Change**\n\n{plan_status['summary']}")
+                
+            elif plan_status["status"] == "conflict_deadlock":
+                st.warning("🚨 **Immediate Attention Required: Scheduling Tradeoff Deadlock**")
+                
+                with st.container(border=True):
+                    st.markdown(f"### {plan_status['summary']}")
+                    st.write("The platform cannot resolve this conflict automatically. Review the cases below:")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown(f"**Option A: Keep {plan_status['student_a']}**")
+                        st.caption(f"Reasoning: {plan_status['reason_a']}")
+                        if st.button(f"Prioritize {plan_status['student_a']}", use_container_width=True):
+                            res = execute_manual_resolution(SPREADSHEET_ID, plan_status['student_a'], plan_status['student_b'])
+                            st.success(res)
+                            st.rerun()
+                            
+                    with col2:
+                        st.markdown(f"**Option B: Prioritize {plan_status['student_b']}**")
+                        st.caption(f"Reasoning: {plan_status['reason_b']}")
+                        if st.button(f"Prioritize {plan_status['student_b']}", use_container_width=True):
+                            res = execute_manual_resolution(SPREADSHEET_ID, plan_status['student_b'], plan_status['student_a'])
+                            st.success(res)
+                            st.rerun()
+                st.stop() # Halt normal operation until conflict resolution choice is locked in
 
-        # Reset chat & clear old brief if a new student is selected or chat is empty
-        if "messages" not in st.session_state or st.session_state.get("current_student") != selected_id or not st.session_state.messages:
-            
-            # Clear out the pre-meeting brief from the previous student
-            st.session_state.pop("current_brief", None)
-            
-            with st.spinner("Recalling past sessions and student facts..."):
-                student_facts, session_summaries = retrieve_past_memories(selected_id)
-                st.session_state.student_facts = student_facts
-                st.session_state.session_summaries = session_summaries
-            
-            memory_injection = f"""
-            === FACTUAL MEMORY ===
-            {student_facts}
-            === CHRONOLOGICAL SESSION SUMMARIES ===
-            {session_summaries}
-            CRITICAL INSTRUCTION: You are a long-term mentor. Use the chronological session summaries above to understand the student's journey.
-            """
-            final_system_prompt = system_prompt + memory_injection
-            
-            st.session_state.messages = [{"role": "system", "content": final_system_prompt}]
-            st.session_state.current_student = selected_id
-
-        # Build Main UI
+        # ==========================================
+        # 5. MAIN UI & CHAT MANAGEMENT
+        # ==========================================
         st.title(f"🎓 Coach for: {id_to_name.get(selected_id)}")
 
-        # --- MILESTONE 8: PRE-MEETING BRIEF UI ---
+        # Milestone 8: Pre-Meeting Brief UI
         if st.session_state.role == "coach":
-            with st.expander("📋 Prepare for Meeting: AI Brief", expanded=True):
+            with st.expander("📋 Prepare for Meeting: AI Brief", expanded=False):
                 st.write("Get a synthesized brief combining real-time academic stats with past session memories.")
                 
                 if st.button("🤖 Generate Pre-Meeting Brief", use_container_width=True):
@@ -182,7 +233,7 @@ if roster is not None and not roster.empty:
                     st.markdown(message["content"])
 
         # ==========================================
-        # 5. CHAT INPUT BOX & LOGIC
+        # 6. CHAT INPUT BOX & LOGIC
         # ==========================================
         if user_input := st.chat_input("Type your message here..."):
             with st.chat_message("user"):
