@@ -11,6 +11,8 @@ click==8.4.1
 distro==1.9.0
 gitdb==4.0.12
 google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
 google-auth
 GitPython==3.1.50
 h11==0.16.0
@@ -23,6 +25,9 @@ Jinja2==3.1.6
 jiter==0.15.0
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
+langchain
+langchain-openai
+langchain-community
 MarkupSafe==3.0.3
 mem0ai
 narwhals==2.22.1

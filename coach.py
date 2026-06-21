@@ -5,8 +5,11 @@ from knowledge_base import search_knowledge_base
 from user_memory import store_session_data, retrieve_past_memories
 from auth import show_login_page
 from signal_processor import detect_and_save_signal
+from coach_agent import get_coach_agent
 
-# 1. Page Configuration & Setup
+# ==========================================
+# 1. PAGE CONFIGURATION & SETUP
+# ==========================================
 st.set_page_config(page_title="Success Coach", page_icon="🎓")
 client = get_openai_client()
 
@@ -39,7 +42,7 @@ if st.sidebar.button("🚪 Logout", use_container_width=True):
 st.sidebar.divider()
 
 # ==========================================
-# 3. Main Interface Logic
+# 3. MAIN INTERFACE LOGIC
 # ==========================================
 if roster is not None and not roster.empty:
     student_id_column = 'student_id'
@@ -61,6 +64,36 @@ if roster is not None and not roster.empty:
                 format_func=lambda x: id_to_name.get(x, "Unknown Student")
             )
             
+            # Autonomous Planning Block (LangChain Agent)
+            st.sidebar.divider()
+            st.sidebar.subheader("Autonomous Planning")
+            if st.sidebar.button("📅 Generate Today's Plan"):
+                with st.spinner("Agent is reasoning through signals..."):
+                    try:
+                        agent = get_coach_agent()
+                        
+                        # Modern agents use .invoke()
+                        # The agent expects a list of messages
+                        # input_msg = "Analyze the signal_sheet, prioritize students, create calendar events, and mark them as actioned."
+                        # Inside the Generate Today's Plan button block...
+                        input_msg = """
+                        1. Use the get_pending_signals tool to fetch the un-actioned signals.
+                        2. Prioritize the students based on severity/urgency.
+                        3. Use the create_calendar_event tool to schedule them for today.
+                        4. Use the update_sheet_actioned tool to mark them as done.
+                        Give me a final report of what you did.
+                        """
+                        response = agent.invoke({"messages": [("user", input_msg)]})
+                        
+                        # Extract the final answer from the message history
+                        plan = response["messages"][-1].content
+                        
+                        st.sidebar.success("Plan generated!")
+                        st.write("### Agent's Planning Report:")
+                        st.markdown(plan)
+                    except Exception as e:
+                        st.error(f"Agent failed: {e}")
+            
         # --- VIEW 2: STUDENT DASHBOARD ---
         elif st.session_state.role == "student":
             st.sidebar.title("Student Portal")
@@ -73,17 +106,6 @@ if roster is not None and not roster.empty:
             id_to_name = {st.session_state.student_id: st.session_state.student_name}
 
         # --- UNIVERSAL APP LOGIC (Runs for both Coach and Student) ---
-        # if st.sidebar.button("💾 Save & End Session", use_container_width=True):
-        #     if "messages" in st.session_state and len(st.session_state.messages) > 1:
-        #         with st.spinner("Extracting and saving session memories..."):
-        #             store_session_data(st.session_state.messages, selected_id)
-        #         st.toast("✅ Session saved to memory!")
-        #         st.session_state.messages = []
-        #         st.rerun()
-        #     else:
-        #         st.sidebar.warning("No conversation to save yet.")
-
-        # --- UNIVERSAL APP LOGIC (Runs for both Coach and Student) ---
         if st.sidebar.button("💾 Save & End Session", use_container_width=True):
             if "messages" in st.session_state and len(st.session_state.messages) > 1:
                 with st.spinner("Saving session and checking for signals..."):
@@ -92,9 +114,7 @@ if roster is not None and not roster.empty:
                     store_session_data(st.session_state.messages, selected_id)
                     
                     # 2. Check for Signals and append to Google Sheets
-                    # We get the student's name securely from the dictionary
                     student_name = id_to_name.get(selected_id, "Unknown Student")
-                    
                     signal_triggered = detect_and_save_signal(
                         st.session_state.messages, 
                         selected_id, 
@@ -115,7 +135,7 @@ if roster is not None and not roster.empty:
             st.session_state.messages = []
             st.rerun()
 
-        # Process the student's data
+        # Process the specific student's data
         student_context = build_student_profile(selected_id, roster, scores, attendance, schedule, signals)
 
         # Build Main UI
@@ -123,7 +143,7 @@ if roster is not None and not roster.empty:
         st.write("Ask me how you're doing in class or for help planning your week!")
 
         # ==========================================
-        # 4. Chat Management & Initialization
+        # 4. CHAT MANAGEMENT & INITIALIZATION
         # ==========================================
         system_prompt = generate_system_prompt(student_context)
 
@@ -134,7 +154,6 @@ if roster is not None and not roster.empty:
             with st.spinner("Recalling past sessions and student facts..."):
                 student_facts, session_summaries = retrieve_past_memories(selected_id)
                 
-                # Save them to session state so we can display them in the sidebar
                 st.session_state.student_facts = student_facts
                 st.session_state.session_summaries = session_summaries
             
@@ -169,7 +188,9 @@ if roster is not None and not roster.empty:
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
 
-        # Chat Input Box & Logic
+        # ==========================================
+        # 5. CHAT INPUT BOX & LOGIC
+        # ==========================================
         if user_input := st.chat_input("Type your message here..."):
             with st.chat_message("user"):
                 st.markdown(user_input)
