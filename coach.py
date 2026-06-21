@@ -6,6 +6,7 @@ from user_memory import store_session_data, retrieve_past_memories
 from auth import show_login_page
 from signal_processor import detect_and_save_signal
 from coach_agent import get_coach_agent
+from briefing_generator import generate_pre_meeting_brief # <--- NEW IMPORT
 
 # ==========================================
 # 1. PAGE CONFIGURATION & SETUP
@@ -25,16 +26,13 @@ roster, scores, attendance, schedule, signals, tab_names = load_school_data(SPRE
 # ==========================================
 # 2. AUTHENTICATION ROUTING LOGIC
 # ==========================================
-# Initialize login state if it doesn't exist yet
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
-# If not logged in, show the login page and STOP the script from running further
 if not st.session_state.logged_in:
     show_login_page(roster)
     st.stop() 
 
-# Add a universal Logout button to the sidebar
 if st.sidebar.button("🚪 Logout", use_container_width=True):
     st.session_state.clear()
     st.rerun()
@@ -54,7 +52,6 @@ if roster is not None and not roster.empty:
         if st.session_state.role == "coach":
             st.sidebar.title("Coach Portal")
             
-            # Build Sidebar Dropdown for Coach to select any student
             id_to_name = dict(zip(roster[student_id_column].astype(str), roster[name_column].astype(str)))
             student_ids = list(id_to_name.keys())
             
@@ -71,23 +68,16 @@ if roster is not None and not roster.empty:
                 with st.spinner("Agent is reasoning through signals..."):
                     try:
                         agent = get_coach_agent()
-                        
-                        # Modern agents use .invoke()
-                        # The agent expects a list of messages
-                        # input_msg = "Analyze the signal_sheet, prioritize students, create calendar events, and mark them as actioned."
-                        # Inside the Generate Today's Plan button block...
                         input_msg = """
                         1. Use the get_pending_signals tool to fetch the un-actioned signals.
                         2. Prioritize the students based on severity/urgency.
-                        3. Use the create_calendar_event tool to schedule them for today.
+                        3. Use the create_calendar_event tool to schedule them for today. 
+                           IMPORTANT: Ensure the start_time is strictly in ISO format with the IST timezone offset (e.g., 'YYYY-MM-DDT10:00:00+05:30').
                         4. Use the update_sheet_actioned tool to mark them as done.
                         Give me a final report of what you did.
                         """
                         response = agent.invoke({"messages": [("user", input_msg)]})
-                        
-                        # Extract the final answer from the message history
                         plan = response["messages"][-1].content
-                        
                         st.sidebar.success("Plan generated!")
                         st.write("### Agent's Planning Report:")
                         st.markdown(plan)
@@ -98,22 +88,14 @@ if roster is not None and not roster.empty:
         elif st.session_state.role == "student":
             st.sidebar.title("Student Portal")
             st.sidebar.success(f"Logged in as:\n{st.session_state.student_name}")
-            
-            # Lock the selected ID to the logged-in student (no dropdown!)
             selected_id = st.session_state.student_id
-            
-            # Build a dictionary just to get their name for the title
             id_to_name = {st.session_state.student_id: st.session_state.student_name}
 
-        # --- UNIVERSAL APP LOGIC (Runs for both Coach and Student) ---
+        # --- UNIVERSAL APP LOGIC ---
         if st.sidebar.button("💾 Save & End Session", use_container_width=True):
             if "messages" in st.session_state and len(st.session_state.messages) > 1:
                 with st.spinner("Saving session and checking for signals..."):
-                    
-                    # 1. Save memories to Mem0
                     store_session_data(st.session_state.messages, selected_id)
-                    
-                    # 2. Check for Signals and append to Google Sheets
                     student_name = id_to_name.get(selected_id, "Unknown Student")
                     signal_triggered = detect_and_save_signal(
                         st.session_state.messages, 
@@ -135,51 +117,62 @@ if roster is not None and not roster.empty:
             st.session_state.messages = []
             st.rerun()
 
-        # Process the specific student's data
         student_context = build_student_profile(selected_id, roster, scores, attendance, schedule, signals)
-
-        # Build Main UI
-        st.title(f"🎓 Coach for: {id_to_name.get(selected_id)}")
-        st.write("Ask me how you're doing in class or for help planning your week!")
 
         # ==========================================
         # 4. CHAT MANAGEMENT & INITIALIZATION
         # ==========================================
         system_prompt = generate_system_prompt(student_context)
 
-        # Reset chat if a new student is selected or chat is empty
+        # Reset chat & clear old brief if a new student is selected or chat is empty
         if "messages" not in st.session_state or st.session_state.get("current_student") != selected_id or not st.session_state.messages:
             
-            # Fetch BOTH types of memory
+            # Clear out the pre-meeting brief from the previous student
+            st.session_state.pop("current_brief", None)
+            
             with st.spinner("Recalling past sessions and student facts..."):
                 student_facts, session_summaries = retrieve_past_memories(selected_id)
-                
                 st.session_state.student_facts = student_facts
                 st.session_state.session_summaries = session_summaries
             
-            # Inject deep context into the AI
             memory_injection = f"""
-            
             === FACTUAL MEMORY ===
-            (Student traits, stressors, and recurring patterns):
             {student_facts}
-            
             === CHRONOLOGICAL SESSION SUMMARIES ===
-            (What was discussed and decided in past meetings):
             {session_summaries}
-            
-            CRITICAL INSTRUCTION: You are a long-term mentor. Use the chronological session summaries above to understand the student's journey. If they have had multiple sessions, acknowledge their ongoing progress and reference past decisions naturally.
+            CRITICAL INSTRUCTION: You are a long-term mentor. Use the chronological session summaries above to understand the student's journey.
             """
             final_system_prompt = system_prompt + memory_injection
             
             st.session_state.messages = [{"role": "system", "content": final_system_prompt}]
             st.session_state.current_student = selected_id
 
-        # The Coach's Briefing Sidebar
-        with st.sidebar.expander("📋 Request Coach's Briefing"):
-            st.markdown("**🧠 Factual Traits & Triggers:**")
+        # Build Main UI
+        st.title(f"🎓 Coach for: {id_to_name.get(selected_id)}")
+
+        # --- MILESTONE 8: PRE-MEETING BRIEF UI ---
+        if st.session_state.role == "coach":
+            with st.expander("📋 Prepare for Meeting: AI Brief", expanded=True):
+                st.write("Get a synthesized brief combining real-time academic stats with past session memories.")
+                
+                if st.button("🤖 Generate Pre-Meeting Brief", use_container_width=True):
+                    with st.spinner(f"Synthesizing data and memories for {id_to_name.get(selected_id)}..."):
+                        brief = generate_pre_meeting_brief(
+                            student_name=id_to_name.get(selected_id),
+                            student_context=student_context,
+                            student_facts=st.session_state.get('student_facts', 'No facts yet.'),
+                            session_summaries=st.session_state.get('session_summaries', 'No sessions yet.')
+                        )
+                        st.session_state.current_brief = brief
+                
+                if "current_brief" in st.session_state:
+                    st.markdown(st.session_state.current_brief)
+
+        # The raw memory sidebar for debugging/reference
+        with st.sidebar.expander("🧠 Raw Memory Data"):
+            st.markdown("**Factual Traits & Triggers:**")
             st.info(st.session_state.get('student_facts', 'No facts yet.'))
-            st.markdown("**📅 Past Session Summaries:**")
+            st.markdown("**Past Session Summaries:**")
             st.success(st.session_state.get('session_summaries', 'No sessions yet.'))
 
         # Display history
@@ -199,33 +192,22 @@ if roster is not None and not roster.empty:
 
             with st.chat_message("assistant"):
                 try:
-                    # ChromaDB Search (RAG)
                     with st.spinner("Checking course materials..."):
                         retrieved_facts = search_knowledge_base(user_input, n_results=2)
                     
                     messages_for_ai = st.session_state.messages.copy()
                     
-                    # Dynamic Memory Injection Whisper
                     memory_reminder = f"""
                     INTERNAL COACHING REMINDER: 
                     Do not forget this student's past history when replying to their message:
                     - Facts & Traits: {st.session_state.get('student_facts', 'None')}
                     - Past Sessions & Goals: {st.session_state.get('session_summaries', 'None')}
-                    
-                    CRITICAL INSTRUCTION: Explicitly tailor your advice to align with their past goals and history.
                     """
                     messages_for_ai.append({"role": "system", "content": memory_reminder})
                     
-                    # ChromaDB Injection
                     if retrieved_facts and "No matching documentation found" not in retrieved_facts:
                         st.toast("📚 Fact retrieved from ChromaDB!") 
-                        knowledge_prompt = f"""
-                        The student just asked a question. Here is accurate information retrieved from your course database:
-                        
-                        {retrieved_facts}
-                        
-                        CRITICAL INSTRUCTION: Use the information above to answer the student's question accurately. Do not contradict the database.
-                        """
+                        knowledge_prompt = f"The student asked a question. Use this retrieved data accurately:\n{retrieved_facts}"
                         messages_for_ai.append({"role": "system", "content": knowledge_prompt})
 
                     response = client.chat.completions.create(
