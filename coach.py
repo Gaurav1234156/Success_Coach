@@ -225,6 +225,38 @@ if roster is not None and not roster.empty:
             st.info(st.session_state.get('student_facts', 'No facts yet.'))
             st.markdown("**Past Session Summaries:**")
             st.success(st.session_state.get('session_summaries', 'No sessions yet.'))
+# ==========================================
+        # 5.5 CHAT INITIALIZATION & PERSONA SETUP
+        # ==========================================
+        system_prompt = generate_system_prompt(student_context)
+
+        # Reset chat if a new student is selected or chat is empty
+        if st.session_state.get("current_student") != selected_id or not st.session_state.messages:
+            
+            # Clear out the pre-meeting brief from the previous student
+            st.session_state.pop("current_brief", None)
+            
+            with st.spinner("Recalling past sessions and student facts..."):
+                student_facts, session_summaries = retrieve_past_memories(selected_id)
+                st.session_state.student_facts = student_facts
+                st.session_state.session_summaries = session_summaries
+            
+            # --- THE PERSONA FIX IS HERE ---
+            memory_injection = f"""
+            === FACTUAL MEMORY ===
+            {student_facts}
+            === CHRONOLOGICAL SESSION SUMMARIES ===
+            {session_summaries}
+            
+            CRITICAL INSTRUCTION: You are a dedicated, empathetic Student Success Coach named Alex. 
+            You are this student's long-term mentor. Never break character or refer to yourself as an AI. 
+            Use the chronological session summaries above to understand the student's journey.
+            """
+            final_system_prompt = system_prompt + memory_injection
+            
+            # Inject the persona and memory as the invisible first message
+            st.session_state.messages = [{"role": "system", "content": final_system_prompt}]
+            st.session_state.current_student = selected_id
 
         # Display history
         for message in st.session_state.messages:
