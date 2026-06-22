@@ -1,5 +1,0 @@
-.env
-venv/
-credential.json
-.streamlit
-chroma_db
